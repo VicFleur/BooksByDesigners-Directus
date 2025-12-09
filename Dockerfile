@@ -7,7 +7,6 @@ RUN apk add --no-cache vips-dev build-base
 
 # 2. Copy your application code into the image
 COPY ./extensions /directus/extensions
-COPY ./importer /directus/importer
 
 # 3. Set up PNPM and install Node.js dependencies
 # This command chain navigates into the extension folder, runs 'pnpm install',
