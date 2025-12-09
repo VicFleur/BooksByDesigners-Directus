@@ -1,0 +1,20 @@
+version: "3"
+
+services:
+    # CMS: Directus
+    directusbooks:
+        build:
+            context: ./
+            dockerfile: Dockerfile
+        restart: unless-stopped
+        networks:
+            - cms
+        volumes:
+            - "/data/coolify/applications/books/uploads:/directus/uploads"
+        env_file:
+            - .env
+
+networks:
+    cms:
+        name: coolify
+        external: true

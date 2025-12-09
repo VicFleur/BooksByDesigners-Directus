@@ -1,0 +1,29 @@
+{
+    "name": "@pixielabs/directus-extension-blurhash",
+    "license": "MIT",
+    "version": "1.0.0",
+    "keywords": [
+        "directus",
+        "directus-extension",
+        "directus-custom-hook"
+    ],
+    "directus:extension": {
+        "type": "hook",
+        "path": "index.js",
+        "source": "src/index.ts",
+        "host": "^10.5.2"
+    },
+    "scripts": {
+        "build": "directus-extension build",
+        "dev": "directus-extension build -w --no-minify"
+    },
+    "devDependencies": {
+        "@directus/extensions-sdk": "^11.0.1",
+        "@types/node": "^20.11.25",
+        "blurhash": "^2.0.5",
+        "typescript": "^5.4.2"
+    },
+    "dependencies": {
+        "sharp": "^0.33.2"
+    }
+}
