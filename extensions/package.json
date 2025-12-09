@@ -1,0 +1,10 @@
+{
+	"name": "books-extensions",
+	"version": "1.0.0",
+	"workspaces": [],
+	"dependencies": {
+		"@directus/extensions-sdk": "^14.0.0",
+		"@directus/sdk": "^20.0.0",
+		"blurhash": "^2.0.5"
+	}
+}
