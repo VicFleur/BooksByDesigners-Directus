@@ -11,6 +11,7 @@ COPY ./extensions /directus/extensions
 # 3. Set up PNPM and install Node.js dependencies
 # This command chain navigates into the extension folder, runs 'pnpm install',
 # which will read your new package.json and install sharp.
+ENV CI=true
 RUN corepack enable \
  && corepack prepare pnpm@8.7.6 --activate \
  && cd /directus/extensions \
