@@ -11,6 +11,7 @@ services:
             - cms
         volumes:
             - "/data/coolify/applications/books/uploads:/directus/uploads"
+            - "/data/coolify/applications/books/database:/directus/database"
         env_file:
             - .env
 
