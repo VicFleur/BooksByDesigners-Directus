@@ -11,7 +11,7 @@
         "type": "hook",
         "path": "index.js",
         "source": "src/index.ts",
-        "host": "^10.5.2"
+		"host": "^11.0.0"
     },
     "scripts": {
         "build": "directus-extension build",
