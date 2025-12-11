@@ -23,6 +23,7 @@ RUN corepack enable \
 # 3.1 Build extensions
 ENV PATH="/directus/extensions/node_modules/.bin:$PATH"
 RUN cd /directus/extensions/blurhash && pnpm run build
+RUN cd /directus/extensions/homepage-books-grid-interface && pnpm run build
 # RUN cd /directus/extensions/armonia && pnpm run build
 # RUN cd /directus/extensions/core && pnpm run build
 # RUN cd /directus/extensions/cronjobs && pnpm run build
