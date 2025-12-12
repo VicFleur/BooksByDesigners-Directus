@@ -1,0 +1,20 @@
+version: "3"
+
+services:
+    # CMS: Directus
+    directusbooks:
+        image: directus/directus:11.13.4
+        restart: unless-stopped
+        ports:
+            - 8055:8055
+        networks:
+            - cms
+        volumes:
+            - ./extensions:/directus/extensions
+            - ./uploads:/directus/uploads
+        env_file:
+            - .env.local
+
+networks:
+    cms:
+        name: coolify

@@ -3,8 +3,8 @@
 	"version": "1.0.0",
 	"workspaces": [],
 	"dependencies": {
-		"@directus/extensions-sdk": "^14.0.0",
-		"@directus/sdk": "^20.0.0",
+		"@directus/extensions-sdk": "^17.0.4",
+		"@directus/sdk": "^20.3.0",
 		"blurhash": "^2.0.5"
 	}
 }
