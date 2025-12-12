@@ -463,15 +463,29 @@ async function fetchItemsByIds(ids) {
 	}
 }
 
+function itemHasRequiredFields(item) {
+	if (!item) return false;
+	const fields = requestedFields.value;
+	for (const field of fields) {
+		// For nested fields like "author.name", just check the first segment exists
+		const rootField = field.split('.')[0];
+		if (!(rootField in item)) return false;
+	}
+	return true;
+}
+
 async function ensureVisibleFetched() {
 	if (!relatedCollection.value) return;
 	const missing = [];
 	for (const id of visibleIds.value) {
 		const key = idKey(id);
-		if (itemsByKey.value.has(key)) continue;
 		if (loadingKeys.value.has(key)) continue;
-		loadingKeys.value.add(key);
-		missing.push(id);
+		const cached = itemsByKey.value.get(key);
+		// Refetch if not cached OR if cached item is missing required fields
+		if (!cached || !itemHasRequiredFields(cached)) {
+			loadingKeys.value.add(key);
+			missing.push(id);
+		}
 	}
 	if (missing.length) await fetchItemsByIds(missing);
 }
@@ -572,7 +586,14 @@ function buildValueFromIds(ids) {
 		if (id == null) continue;
 		byKey.set(idKey(id), entry);
 	}
-	return ids.map((id) => byKey.get(idKey(id)) ?? { [relatedPrimaryKeyField.value]: id });
+	const sf = sortField.value;
+	return ids.map((id, index) => {
+		const existing = byKey.get(idKey(id));
+		const obj = existing ? { ...existing } : { [relatedPrimaryKeyField.value]: id };
+		// Update sort_field based on array position so Directus persists the new order
+		if (sf) obj[sf] = index;
+		return obj;
+	});
 }
 
 function updateIds(nextIds) {
@@ -616,13 +637,13 @@ function onCardDragOver(id) {
 	dragOverKey.value = over;
 }
 
-function moveKeyBefore(fromKey, toKey) {
+function moveKeyToPosition(fromKey, toKey) {
 	const ids = [...renderIds.value];
 	const fromIndex = ids.findIndex((x) => idKey(x) === fromKey);
-	let toIndex = ids.findIndex((x) => idKey(x) === toKey);
-	if (fromIndex === -1 || toIndex === -1) return;
+	const toIndex = ids.findIndex((x) => idKey(x) === toKey);
+	if (fromIndex === -1 || toIndex === -1 || fromIndex === toIndex) return;
 	const [moved] = ids.splice(fromIndex, 1);
-	if (fromIndex < toIndex) toIndex -= 1;
+	// Insert at toIndex - the dragged item takes the target's position
 	ids.splice(toIndex, 0, moved);
 	updateRenderIds(ids);
 }
@@ -630,7 +651,7 @@ function moveKeyBefore(fromKey, toKey) {
 function onCardDrop(id) {
 	if (!draggingKey.value) return;
 	const toKey = idKey(id);
-	if (toKey !== draggingKey.value) moveKeyBefore(draggingKey.value, toKey);
+	if (toKey !== draggingKey.value) moveKeyToPosition(draggingKey.value, toKey);
 	onDragEnd();
 }
 
@@ -692,7 +713,8 @@ async function fetchSelectNext() {
 				limit,
 				offset,
 				search: selectSearch.value || undefined,
-				filter: props.filter || undefined
+				filter: props.filter || undefined,
+				meta: 'filter_count'
 			}
 		});
 
