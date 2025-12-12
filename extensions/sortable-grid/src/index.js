@@ -23,7 +23,7 @@ export default defineInterface({
                 field: 'card_cover',
                 name: 'Card Cover',
                 type: 'string',
-                meta: { width: 'full', interface: 'system-field-tree', options: { collectionName: collection } }
+                meta: { width: 'full', interface: 'system-field', options: { collectionName: collection } }
             },
             {
                 field: 'card_title',
@@ -50,6 +50,17 @@ export default defineInterface({
                 type: 'integer',
                 schema: { default_value: 1000 },
                 meta: { width: 'half', interface: 'input' }
+            },
+            {
+                field: 'sort_field',
+                name: 'Sort Field',
+                type: 'string',
+                meta: {
+                    width: 'full',
+                    interface: 'system-field',
+                    note: 'Optional override. Used when the relationship sort field cannot be detected automatically.',
+                    options: { collectionName: collection }
+                }
             }
         ];
     },

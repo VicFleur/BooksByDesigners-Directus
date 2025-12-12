@@ -312,6 +312,10 @@ const orderedIds = computed(() => {
 	return ids;
 });
 
+// Render the list in reverse so "position 1" is shown at the end.
+// The underlying order is still emitted in its original direction so Directus persists the sort correctly.
+const renderIds = computed(() => [...orderedIds.value].reverse());
+
 const orderedKeySet = computed(() => new Set(orderedIds.value.map(idKey)));
 
 const gridStyle = computed(() => ({
@@ -325,7 +329,9 @@ const relationError = ref(null);
 
 const relatedCollection = computed(() => relationInfo.value?.collection ?? null);
 const m2oField = computed(() => relationInfo.value?.field ?? null);
-const sortField = computed(() => relationInfo.value?.meta?.sort_field ?? null);
+const relationSortField = computed(() => relationInfo.value?.meta?.sort_field ?? null);
+const configuredSortField = computed(() => normalizeFieldPath(options.value.sort_field));
+const sortField = computed(() => configuredSortField.value || relationSortField.value || null);
 
 async function fetchRelatedPrimaryKeyField() {
 	if (!relatedCollection.value) {
@@ -404,17 +410,26 @@ const requestedFields = computed(() => {
 const visibleCount = ref(0);
 watch(
 	() => orderedIds.value.length,
-	(total) => {
+	(total, prevTotal) => {
+		const prev = typeof prevTotal === 'number' ? prevTotal : 0;
 		if (visibleCount.value === 0) {
 			visibleCount.value = Math.min(total, Math.max(1, pageSize.value || 1000));
 			return;
 		}
+
+		// If we previously had *all* items visible and new items were appended,
+		// keep the list fully visible (otherwise new items stay hidden until a reorder/scroll).
+		if (total > prev && visibleCount.value >= prev) {
+			visibleCount.value = total;
+			return;
+		}
+
 		visibleCount.value = Math.min(visibleCount.value, total);
 	},
 	{ immediate: true }
 );
 
-const visibleIds = computed(() => orderedIds.value.slice(0, visibleCount.value));
+const visibleIds = computed(() => renderIds.value.slice(0, visibleCount.value));
 
 async function fetchItemsByIds(ids) {
 	if (!relatedCollection.value) return;
@@ -522,7 +537,7 @@ function coverIdFromValue(v) {
 
 function assetUrlFromFileId(fileId) {
 	if (!fileId) return null;
-	return `/assets/${encodeURIComponent(String(fileId))}?fit=cover&width=600&height=800&quality=80`;
+	return `/assets/${encodeURIComponent(String(fileId))}?fit=cover&width=600&height=600&quality=80`;
 }
 
 function coverUrl(id) {
@@ -566,6 +581,10 @@ function updateIds(nextIds) {
 	emit('input', nextValue);
 }
 
+function updateRenderIds(nextRenderIds) {
+	updateIds([...nextRenderIds].reverse());
+}
+
 function unlink(id) {
 	const key = idKey(id);
 	updateIds(orderedIds.value.filter((x) => idKey(x) !== key));
@@ -598,14 +617,14 @@ function onCardDragOver(id) {
 }
 
 function moveKeyBefore(fromKey, toKey) {
-	const ids = [...orderedIds.value];
+	const ids = [...renderIds.value];
 	const fromIndex = ids.findIndex((x) => idKey(x) === fromKey);
 	let toIndex = ids.findIndex((x) => idKey(x) === toKey);
 	if (fromIndex === -1 || toIndex === -1) return;
 	const [moved] = ids.splice(fromIndex, 1);
 	if (fromIndex < toIndex) toIndex -= 1;
 	ids.splice(toIndex, 0, moved);
-	updateIds(ids);
+	updateRenderIds(ids);
 }
 
 function onCardDrop(id) {
@@ -621,12 +640,12 @@ function onGridDragOver() {
 
 function onGridDrop() {
 	if (!draggingKey.value) return;
-	const ids = [...orderedIds.value];
+	const ids = [...renderIds.value];
 	const fromIndex = ids.findIndex((x) => idKey(x) === draggingKey.value);
 	if (fromIndex === -1) return onDragEnd();
 	const [moved] = ids.splice(fromIndex, 1);
 	ids.push(moved);
-	updateIds(ids);
+	updateRenderIds(ids);
 	onDragEnd();
 }
 
@@ -932,6 +951,20 @@ async function createItem() {
 	background: var(--theme--background-subdued);
 }
 
+/* Fallback for browsers without `aspect-ratio` */
+@supports not (aspect-ratio: 1 / 1) {
+	.sg__cover::before {
+		content: '';
+		display: block;
+		padding-top: 100%;
+	}
+	.sg__cover-img,
+	.sg__cover-placeholder {
+		position: absolute;
+		inset: 0;
+	}
+}
+
 .sg__cover-img {
 	display: block;
 	width: 100%;
@@ -1024,14 +1057,11 @@ async function createItem() {
 }
 
 .sg__drawer-grid {
-	height: 100%;
-	overflow: auto;
-	padding: 16px;
+	padding: 0 16px 100px 16px;
 	display: grid;
 	gap: 12px;
 	grid-template-columns: repeat(3, minmax(0, 1fr));
 	align-content: start;
-    box-sizing: border-box;
 }
 
 .sg__drawer-form {
