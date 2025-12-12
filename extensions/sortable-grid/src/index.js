@@ -23,19 +23,19 @@ export default defineInterface({
                 field: 'card_cover',
                 name: 'Card Cover',
                 type: 'string',
-                meta: { width: 'full', interface: 'system-field', options: { collectionName: collection } }
+                meta: { width: 'full', interface: 'system-field-tree', options: { collectionName: collection } }
             },
             {
                 field: 'card_title',
                 name: 'Card Title',
                 type: 'string',
-                meta: { width: 'half', interface: 'system-field', options: { collectionName: collection } }
+                meta: { width: 'half', interface: 'system-field-tree', options: { collectionName: collection } }
             },
             {
                 field: 'card_subtitle',
                 name: 'Card Subtitle',
                 type: 'string',
-                meta: { width: 'half', interface: 'system-field', options: { collectionName: collection } }
+                meta: { width: 'half', interface: 'system-field-tree', options: { collectionName: collection } }
             },
             {
                 field: 'columns',
