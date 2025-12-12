@@ -23,7 +23,7 @@ RUN corepack enable \
 # 3.1 Build extensions
 ENV PATH="/directus/extensions/node_modules/.bin:$PATH"
 RUN cd /directus/extensions/blurhash && pnpm run build
-RUN cd /directus/extensions/homepage-books-grid-interface && pnpm run build
+RUN cd /directus/extensions/sortable-grid && pnpm run build
 # RUN cd /directus/extensions/armonia && pnpm run build
 # RUN cd /directus/extensions/core && pnpm run build
 # RUN cd /directus/extensions/cronjobs && pnpm run build
@@ -35,7 +35,7 @@ RUN cd /directus/extensions/homepage-books-grid-interface && pnpm run build
   
 # 4. Set correct ownership for everything
 # This must run AFTER all files are copied and created so node can own them.
-RUN chown -R node:node /directus
+# RUN chown -R node:node /directus
 
 EXPOSE 8070
 USER node
