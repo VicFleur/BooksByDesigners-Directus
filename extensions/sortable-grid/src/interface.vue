@@ -17,6 +17,14 @@
 				</v-button>
 
 				<v-button
+					secondary
+					:disabled="disabled || orderedIds.length < 2"
+					@click="shuffleGrid"
+				>
+					<v-icon name="shuffle" small />
+				</v-button>
+
+				<v-button
 					v-if="enableCreate"
 					:disabled="disabled || !relatedCollection"
 					@click="openCreateDrawer"
@@ -285,15 +293,25 @@ function extractId(entry) {
 }
 
 const localValue = ref(Array.isArray(props.value) ? props.value : []);
+const fullRelatedIds = ref(null); // Stores all IDs when fetched from API (bypasses Directus 100 limit)
+const fullIdsFetched = ref(false);
+
 watch(
 	() => props.value,
 	(v) => {
 		localValue.value = Array.isArray(v) ? v : [];
+		// Reset full fetch when props change (e.g., parent item changes)
+		if (!fullIdsFetched.value) {
+			fullRelatedIds.value = null;
+		}
 	},
 	{ deep: true }
 );
 
 const orderedIds = computed(() => {
+	// Use full fetched IDs if available (bypasses Directus 100 limit)
+	if (fullRelatedIds.value) return fullRelatedIds.value;
+
 	const v = localValue.value;
 	if (!Array.isArray(v)) return [];
 	const seen = new Set();
@@ -374,6 +392,65 @@ async function fetchRelationInfo() {
 }
 
 watch([collection, field], () => void fetchRelationInfo(), { immediate: true });
+
+// Resolve the parent item's primary key for querying related items
+function getParentId() {
+	if (parentKey.value != null && parentKey.value !== '+' && parentKey.value !== 'id') {
+		return parentKey.value;
+	}
+	try {
+		const path = window.location.pathname || '';
+		const parts = path.split('/').filter(Boolean);
+		const contentIndex = parts.indexOf('content');
+		if (contentIndex !== -1 && parts.length >= contentIndex + 3) return parts[contentIndex + 2];
+	} catch {}
+	return null;
+}
+
+// Fetch all related IDs when Directus may have truncated the list (default limit is 100)
+async function fetchAllRelatedIds() {
+	if (!relatedCollection.value || !m2oField.value) return;
+	if (fullIdsFetched.value) return;
+
+	const propsCount = Array.isArray(props.value) ? props.value.length : 0;
+	// Only fetch if we got exactly 100 items (likely truncated by Directus default limit)
+	if (propsCount < 100) return;
+
+	const parentId = getParentId();
+	if (!parentId) return;
+
+	try {
+		const pk = relatedPrimaryKeyField.value;
+		const sf = sortField.value;
+		const res = await api.get(`/items/${relatedCollection.value}`, {
+			params: {
+				fields: [pk],
+				filter: { [m2oField.value]: { _eq: parentId } },
+				sort: sf ? [sf] : undefined,
+				limit: -1
+			}
+		});
+		const rows = res?.data?.data ?? [];
+		const ids = rows.map((r) => r[pk]).filter((id) => id != null);
+		if (ids.length > 0) {
+			fullRelatedIds.value = ids;
+		}
+	} catch {
+		// Fall back to props.value if fetch fails
+	} finally {
+		fullIdsFetched.value = true;
+	}
+}
+
+watch(
+	[relatedCollection, m2oField, () => props.value],
+	() => {
+		fullIdsFetched.value = false;
+		fullRelatedIds.value = null;
+		void fetchAllRelatedIds();
+	},
+	{ immediate: true }
+);
 
 // --- Fetch and cache related items by ID (lazy / infinite)
 const itemsByKey = ref(new Map());
@@ -607,6 +684,8 @@ function buildValueFromIds(ids) {
 function updateIds(nextIds) {
 	const nextValue = buildValueFromIds(nextIds);
 	localValue.value = nextValue;
+	// Keep fullRelatedIds in sync with local changes
+	fullRelatedIds.value = nextIds;
 	emit('input', nextValue);
 }
 
@@ -617,6 +696,17 @@ function updateRenderIds(nextRenderIds) {
 function unlink(id) {
 	const key = idKey(id);
 	updateIds(orderedIds.value.filter((x) => idKey(x) !== key));
+}
+
+function shuffleGrid() {
+	if (orderedIds.value.length < 2) return;
+	const ids = [...orderedIds.value];
+	// Fisher-Yates shuffle
+	for (let i = ids.length - 1; i > 0; i--) {
+		const j = Math.floor(Math.random() * (i + 1));
+		[ids[i], ids[j]] = [ids[j], ids[i]];
+	}
+	updateIds(ids);
 }
 
 // --- Drag reorder (HTML5 DnD)
@@ -820,19 +910,7 @@ const createDrawerOpen = ref(false);
 const createForm = ref({});
 const createLoading = ref(false);
 
-const parentItemId = computed(() => {
-	try {
-		if (parentKey.value != null && parentKey.value !== '+' && parentKey.value !== 'id') return parentKey.value;
-
-		const path = window.location.pathname || '';
-		const parts = path.split('/').filter(Boolean);
-		const contentIndex = parts.indexOf('content');
-		if (contentIndex !== -1 && parts.length >= contentIndex + 3) return parts[contentIndex + 2];
-		return null;
-	} catch {
-		return null;
-	}
-});
+const parentItemId = computed(() => getParentId());
 
 const createInitialValues = computed(() => {
 	const init = {};
