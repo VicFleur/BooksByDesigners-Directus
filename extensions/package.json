@@ -5,6 +5,9 @@
 	"dependencies": {
 		"@directus/extensions-sdk": "^17.0.4",
 		"@directus/sdk": "^20.3.0",
-		"blurhash": "^2.0.5"
-	}
+		"blurhash": "^2.0.5",
+        "@types/node": "^20.11.25",
+        "typescript": "^5.4.2",
+        "bottleneck": "^2.19.5"
+    }
 }

@@ -1,0 +1,29 @@
+{
+    "name": "directus-extension-listings-sync",
+    "version": "1.0.0",
+    "description": "Daily cron to sync eBay and AbeBooks listings",
+    "keywords": [
+        "directus",
+        "directus-extension",
+        "directus-custom-hook"
+    ],
+    "directus:extension": {
+        "type": "hook",
+        "path": "dist/index.js",
+        "source": "src/index.ts",
+        "host": "^11.0.0"
+    },
+    "scripts": {
+        "build": "directus-extension build",
+        "dev": "directus-extension build -w --no-minify"
+    },
+    "devDependencies": {
+        "@directus/extensions-sdk": "^11.0.1",
+        "@types/node": "^20.11.25",
+        "typescript": "^5.4.2"
+    },
+    "dependencies": {
+        "bottleneck": "^2.19.5"
+    }
+}
+
