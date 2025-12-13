@@ -20,6 +20,26 @@ export default defineInterface({
 
         return [
             {
+                field: 'related_collection',
+                name: 'Related Collection',
+                type: 'string',
+                meta: {
+                    width: 'half',
+                    interface: 'system-collection',
+                    note: 'Manually specify the related collection if auto-detection fails.'
+                }
+            },
+            {
+                field: 'foreign_key',
+                name: 'Foreign Key Field',
+                type: 'string',
+                meta: {
+                    width: 'half',
+                    interface: 'input',
+                    note: 'Manually specify the field in the related collection that points to this item.'
+                }
+            },
+            {
                 field: 'card_cover',
                 name: 'Card Cover',
                 type: 'string',

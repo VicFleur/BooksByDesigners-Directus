@@ -269,6 +269,8 @@ const cardTitle = computed(() => normalizeFieldPath(options.value.card_title));
 const cardSubtitle = computed(() => normalizeFieldPath(options.value.card_subtitle_key));
 const columns = computed(() => Number(options.value.columns || 6));
 const pageSize = computed(() => Number(options.value.limit || 1000));
+const configuredRelatedCollection = computed(() => options.value.related_collection);
+const configuredForeignKey = computed(() => options.value.foreign_key);
 
 function idKey(id) {
 	return String(id);
@@ -342,8 +344,8 @@ const relationInfo = ref(null);
 const relationLoading = ref(false);
 const relationError = ref(null);
 
-const relatedCollection = computed(() => relationInfo.value?.collection ?? null);
-const m2oField = computed(() => relationInfo.value?.field ?? null);
+const relatedCollection = computed(() => configuredRelatedCollection.value || relationInfo.value?.collection || relationInfo.value?.many_collection || null);
+const m2oField = computed(() => configuredForeignKey.value || relationInfo.value?.field || relationInfo.value?.many_field || null);
 // `sort_field` is stored on the relation row (not under meta), but keep the meta
 // fallback for older Directus responses or custom shapes.
 const relationSortField = computed(() => relationInfo.value?.sort_field ?? relationInfo.value?.meta?.sort_field ?? null);
@@ -413,6 +415,7 @@ async function fetchAllRelatedIds() {
 	if (fullIdsFetched.value) return;
 
 	const propsCount = Array.isArray(props.value) ? props.value.length : 0;
+	console.log('relationInfo', relationInfo.value);
 	// Only fetch if we got exactly 100 items (likely truncated by Directus default limit).
 	// If we have > 100 items, we definitely have the full list (or at least more than the default limit),
 	// so we shouldn't fetch from DB as that might overwrite unsaved local changes.
@@ -425,6 +428,14 @@ async function fetchAllRelatedIds() {
 		const pk = relatedPrimaryKeyField.value;
 		const sf = sortField.value;
 		const res = await api.get(`/items/${relatedCollection.value}`, {
+			params: {
+				fields: [pk],
+				filter: { [m2oField.value]: { _eq: parentId } },
+				sort: sf ? [sf] : undefined,
+				limit: -1
+			}
+		});
+		console.log({
 			params: {
 				fields: [pk],
 				filter: { [m2oField.value]: { _eq: parentId } },
