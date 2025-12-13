@@ -413,8 +413,10 @@ async function fetchAllRelatedIds() {
 	if (fullIdsFetched.value) return;
 
 	const propsCount = Array.isArray(props.value) ? props.value.length : 0;
-	// Only fetch if we got exactly 100 items (likely truncated by Directus default limit)
-	if (propsCount < 100) return;
+	// Only fetch if we got exactly 100 items (likely truncated by Directus default limit).
+	// If we have > 100 items, we definitely have the full list (or at least more than the default limit),
+	// so we shouldn't fetch from DB as that might overwrite unsaved local changes.
+	if (propsCount !== 100) return;
 
 	const parentId = getParentId();
 	if (!parentId) return;
@@ -443,7 +445,7 @@ async function fetchAllRelatedIds() {
 }
 
 watch(
-	[relatedCollection, m2oField, () => props.value],
+	[relatedCollection, m2oField, parentKey],
 	() => {
 		fullIdsFetched.value = false;
 		fullRelatedIds.value = null;
