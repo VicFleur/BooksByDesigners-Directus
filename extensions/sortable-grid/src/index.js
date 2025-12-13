@@ -32,7 +32,7 @@ export default defineInterface({
                 meta: { width: 'half', interface: 'system-field-tree', options: { collectionName: collection } }
             },
             {
-                field: 'card_subtitle',
+                field: 'card_subtitle_key',
                 name: 'Card Subtitle',
                 type: 'string',
                 meta: { width: 'half', interface: 'system-field-tree', options: { collectionName: collection } }

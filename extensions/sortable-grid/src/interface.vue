@@ -2,14 +2,13 @@
 	<div class="sg">
 		<div class="sg__toolbar">
 			<div class="sg__toolbar-left">
-				<div class="sg__label">Related</div>
+				<!-- <div class="sg__label">Related</div> -->
 				<div class="sg__count" v-if="orderedIds.length">{{ orderedIds.length }}</div>
 			</div>
 
 			<div class="sg__toolbar-right">
 				<v-button
 					v-if="enableSelect"
-					small
 					secondary
 					:disabled="disabled || !relatedCollection"
 					@click="openSelectDrawer"
@@ -19,7 +18,6 @@
 
 				<v-button
 					v-if="enableCreate"
-					small
 					:disabled="disabled || !relatedCollection"
 					@click="openCreateDrawer"
 				>
@@ -131,17 +129,16 @@
 			@update:model-value="onSelectDrawerModelValue"
 			@cancel="onSelectDrawerCancel"
 		>
-			<div ref="selectGridEl" class="sg__drawer-grid">
-				<div
-					v-for="item in selectItems"
-					:key="idKey(item[relatedPrimaryKeyField])"
-					class="sg__card sg__card--select"
-					:class="{
-						'sg__card--selected': selectedCandidateByKey.has(idKey(item[relatedPrimaryKeyField])),
-						'sg__card--disabled': orderedKeySet.has(idKey(item[relatedPrimaryKeyField]))
-					}"
-					@click="toggleCandidate(item[relatedPrimaryKeyField])"
-				>
+		<div ref="selectGridEl" class="sg__drawer-grid">
+			<div
+				v-for="item in filteredSelectItems"
+				:key="idKey(item[relatedPrimaryKeyField])"
+				class="sg__card sg__card--select"
+				:class="{
+					'sg__card--selected': selectedCandidateByKey.has(idKey(item[relatedPrimaryKeyField]))
+				}"
+				@click="toggleCandidate(item[relatedPrimaryKeyField])"
+			>
 					<div class="sg__cover">
 						<img v-if="coverUrlFromItem(item)" class="sg__cover-img" :src="coverUrlFromItem(item)" alt="" />
 						<div v-else class="sg__cover-placeholder">
@@ -154,18 +151,18 @@
 					</div>
 				</div>
 
-				<div v-if="selectError" class="sg__drawer-state">Failed to load items.</div>
-				<div v-else-if="selectLoading && selectItems.length === 0" class="sg__drawer-state">Loading…</div>
-				<div v-else-if="!selectLoading && selectItems.length === 0" class="sg__drawer-state">No items found.</div>
+			<div v-if="selectError" class="sg__drawer-state">Failed to load items.</div>
+			<div v-else-if="selectLoading && filteredSelectItems.length === 0" class="sg__drawer-state">Loading…</div>
+			<div v-else-if="!selectLoading && filteredSelectItems.length === 0" class="sg__drawer-state">No items available.</div>
 
 				<div ref="selectSentinelEl" class="sg__sentinel" />
 			</div>
 
 			<template #actions>
 				<div class="sg__drawer-actions">
-					<div class="sg__drawer-search">
-						<v-input v-model="selectSearch" placeholder="Search…" @update:modelValue="onSelectSearchChange" />
-					</div>
+					<!-- <div class="sg__drawer-search">
+						<v-input small v-model="selectSearch" placeholder="Search…" @update:modelValue="onSelectSearchChange" />
+					</div> -->
 					<v-button :disabled="selectedCandidateByKey.size === 0" @click="addSelectedCandidates">
 						Add {{ selectedCandidateByKey.size }}
 					</v-button>
@@ -261,7 +258,7 @@ function normalizeFieldPath(raw) {
 // Interface options (your requested knobs)
 const cardCover = computed(() => normalizeFieldPath(options.value.card_cover));
 const cardTitle = computed(() => normalizeFieldPath(options.value.card_title));
-const cardSubtitle = computed(() => normalizeFieldPath(options.value.card_subtitle));
+const cardSubtitle = computed(() => normalizeFieldPath(options.value.card_subtitle_key));
 const columns = computed(() => Number(options.value.columns || 6));
 const pageSize = computed(() => Number(options.value.limit || 1000));
 
@@ -329,7 +326,9 @@ const relationError = ref(null);
 
 const relatedCollection = computed(() => relationInfo.value?.collection ?? null);
 const m2oField = computed(() => relationInfo.value?.field ?? null);
-const relationSortField = computed(() => relationInfo.value?.meta?.sort_field ?? null);
+// `sort_field` is stored on the relation row (not under meta), but keep the meta
+// fallback for older Directus responses or custom shapes.
+const relationSortField = computed(() => relationInfo.value?.sort_field ?? relationInfo.value?.meta?.sort_field ?? null);
 const configuredSortField = computed(() => normalizeFieldPath(options.value.sort_field));
 const sortField = computed(() => configuredSortField.value || relationSortField.value || null);
 
@@ -579,17 +578,26 @@ const emitsObjects = computed(() => {
 });
 
 function buildValueFromIds(ids) {
-	if (!emitsObjects.value) return ids;
+	const sf = sortField.value;
+
+	// If we have objects, or if we need to update the sort field, we must return objects.
+	// Otherwise (IDs only and no sort update), we can return IDs.
+	if (!emitsObjects.value && !sf) return ids;
+
 	const byKey = new Map();
 	for (const entry of localValue.value) {
 		const id = extractId(entry);
 		if (id == null) continue;
 		byKey.set(idKey(id), entry);
 	}
-	const sf = sortField.value;
+
 	return ids.map((id, index) => {
 		const existing = byKey.get(idKey(id));
-		const obj = existing ? { ...existing } : { [relatedPrimaryKeyField.value]: id };
+		const obj =
+			existing && typeof existing === 'object'
+				? { ...existing }
+				: { [relatedPrimaryKeyField.value]: id };
+
 		// Update sort_field based on array position so Directus persists the new order
 		if (sf) obj[sf] = index;
 		return obj;
@@ -678,18 +686,23 @@ const selectLoading = ref(false);
 const selectError = ref(false);
 const selectedCandidateByKey = ref(new Map());
 
-const selectOffset = ref(0);
 const selectHasMore = ref(true);
 
 const selectGridEl = ref(null);
 const selectSentinelEl = ref(null);
 let selectObserver = null;
 
-const selectLimit = computed(() => Math.max(1, Math.min(100, pageSize.value || 50)));
+// Fetch all items at once
+const selectLimit = -1;
+
+// Filter out already-linked items from the select drawer
+const filteredSelectItems = computed(() => {
+	const pk = relatedPrimaryKeyField.value;
+	return selectItems.value.filter((item) => !orderedKeySet.value.has(idKey(item?.[pk] ?? item?.id)));
+});
 
 function resetSelectResults() {
 	selectItems.value = [];
-	selectOffset.value = 0;
 	selectHasMore.value = true;
 	selectError.value = false;
 }
@@ -703,38 +716,20 @@ async function fetchSelectNext() {
 	selectError.value = false;
 
 	try {
-		const limit = selectLimit.value;
-		const offset = selectOffset.value;
 		const pk = relatedPrimaryKeyField.value;
 
 		const res = await api.get(`/items/${relatedCollection.value}`, {
 			params: {
 				fields: requestedFields.value,
-				limit,
-				offset,
+				limit: selectLimit,
 				search: selectSearch.value || undefined,
-				filter: props.filter || undefined,
-				meta: 'filter_count'
+				filter: props.filter || undefined
 			}
 		});
 
 		const rows = res?.data?.data ?? [];
-
-		// Append unique items by PK
-		const existing = new Set(selectItems.value.map((it) => idKey(it?.[pk] ?? it?.id)));
-		const next = [...selectItems.value];
-		for (const row of rows) {
-			const key = idKey(row?.[pk] ?? row?.id);
-			if (existing.has(key)) continue;
-			existing.add(key);
-			next.push(row);
-		}
-		selectItems.value = next;
-		selectOffset.value += rows.length;
-
-		const total = res?.data?.meta?.filter_count ?? res?.data?.meta?.total_count ?? null;
-		if (typeof total === 'number') selectHasMore.value = selectOffset.value < total;
-		else selectHasMore.value = rows.length === limit;
+		selectItems.value = rows;
+		selectHasMore.value = false; // All items fetched at once
 	} catch {
 		selectError.value = true;
 		selectHasMore.value = false;
@@ -802,7 +797,6 @@ function openSelectDrawer() {
 
 function toggleCandidate(id) {
 	const key = idKey(id);
-	if (orderedKeySet.value.has(key)) return; // already linked
 	const next = new Map(selectedCandidateByKey.value);
 	if (next.has(key)) next.delete(key);
 	else next.set(key, id);
@@ -948,11 +942,6 @@ async function createItem() {
 
 .sg__card--select {
 	cursor: pointer;
-}
-
-.sg__card--disabled {
-	opacity: 0.5;
-	pointer-events: none;
 }
 
 .sg__card--selected {
