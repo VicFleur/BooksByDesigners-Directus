@@ -611,7 +611,9 @@ export default defineHook(({ schedule, init }, { services, database, getSchema, 
                     return res.status(400).send('Invalid payload. Expected "sources" array.');
                 }
 
-                await syncListings(keys, sources);
+                logger.info(req.body);
+
+                //await syncListings(keys, sources);
                 
                 res.json({ success: true, message: `Synced ${keys ? keys.length : 'all'} books` });
             } catch (e) {
