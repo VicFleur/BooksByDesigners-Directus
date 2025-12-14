@@ -572,8 +572,7 @@ export default defineHook(({ schedule, init }, { services, database, getSchema, 
     logger.info(`[listings-sync] Registered cron: ${cronExpression}`);
 
     // Register custom route for manual trigger via Flow
-    init('routes.custom', (meta: any) => {
-        const app = meta.app;
+    init('routes.before', async ({ app }) => {
         app.post('/listings-sync', async (req: any, res: any) => {
             try {
                 // Ensure request is authenticated
