@@ -3,7 +3,6 @@ import Bottleneck from 'bottleneck';
 import { createHash } from 'crypto';
 // @ts-ignore
 import { decode } from 'he';
-import express from 'express';
 
 // Types
 interface Book {
@@ -591,26 +590,34 @@ export default defineHook(({ schedule, init }, { services, database, getSchema, 
 
     // Register custom route for manual trigger via Flow
     init('routes.before', async ({ app }) => {
-        app.use('/listings-sync', express.json({ limit: '1mb' }));
-
         app.post('/listings-sync', async (req: any, res: any) => {
             try {
-                const authorized = req.accountability?.user || (SYNC_SECRET && req.headers['x-sync-secret'] === SYNC_SECRET);
-                if (!authorized) return res.status(401).json({ error: 'Unauthorized' });
+                // Ensure request is authenticated
+                let authorized = false;
+                if (req.accountability && req.accountability.user) authorized = true;
+                if (SYNC_SECRET && req.headers['x-sync-secret'] === SYNC_SECRET) authorized = true;
 
-                // Unwrap double-encoded JSON (Directus Flow quirk)
-                let body = req.body;
-                while (typeof body === 'string') body = JSON.parse(body);
+                if (!authorized) {
+                    return res.status(401).send('Unauthorized');
+                }
 
-                const keys = Array.isArray(body?.keys) ? body.keys : undefined;
-                const sources = Array.isArray(body?.sources) ? body.sources.map(String) : undefined;
+                const { keys, sources } = req.body;
 
-                if (!keys?.length || !sources?.length) {
-                    return res.status(400).json({ error: 'Required: keys[] and sources[]' });
+                if (!keys || !sources) {
+                    return res.status(400).send('Invalid payload. Expected "keys" and "sources" arrays.');
+                }
+                
+                if (keys && (!Array.isArray(keys) || keys.length == 0)) {
+                    return res.status(400).send('Invalid payload. Expected "keys" array.');
+                }
+                
+                if (sources && (!Array.isArray(sources) || sources.length == 0)) {
+                    return res.status(400).send('Invalid payload. Expected "sources" array.');
                 }
 
                 await syncListings(keys, sources);
-                res.json({ success: true, message: `Synced ${keys.length} books` });
+                
+                res.json({ success: true, message: `Synced ${keys ? keys.length : 'all'} books` });
             } catch (e) {
                 logger.error(e);
                 res.status(500).json({ error: e instanceof Error ? e.message : 'Unknown error' });
