@@ -311,35 +311,38 @@ export default defineHook(({ schedule }, { services, database, getSchema, env, l
             const html = await res.text();
 
             // Simple regex-based extraction (minimal scraping)
-            const itemRegex = /<div[^>]*class="[^"]*result-item[^"]*"[^>]*>([\s\S]*?)<\/div>\s*<\/div>\s*<\/div>/gi;
-            const titleRegex = /<span[^>]*data-cy="listing-title"[^>]*>([^<]+)<\/span>/i;
-            const priceRegex = /<span[^>]*class="[^"]*item-price[^"]*"[^>]*>[^\d]*([\d,.]+)/i;
-            const linkRegex = /<a[^>]*href="(\/book-search\/[^"]+)"/i;
-            const sellerRegex = /<a[^>]*data-cy="listing-seller-link"[^>]*>([^<]+)<\/a>/i;
-            const conditionRegex = /<span[^>]*data-cy="listing-book-condition"[^>]*>([^<]+)<\/span>/i;
+            // AbeBooks wraps each result in an <li class="result-item"> (not a div)
+            const itemRegex = /<li[^>]*class="[^"]*\bresult-item\b[^"]*"[^>]*>([\s\S]*?)<\/li>/gi;
+            const titleRegex = /<span[^>]*data-(?:cy|test-id)="listing-title"[^>]*>([^<]+)<\/span>/i;
+            const priceMetaRegex = /<meta[^>]*itemprop="price"[^>]*content="([\d.,]+)"/i;
+            const priceTextRegex = /<p[^>]*class="[^"]*item-price[^"]*"[^>]*>[^0-9]*([\d.,]+)/i;
+            const linkRegex = /<a[^>]*(?:itemprop="url"|data-(?:cy|test-id)="listing-title")[^>]*href="([^"]+)"/i;
+            const sellerRegex = /<span[^>]*data-(?:cy|test-id)="listing-seller-name"[^>]*>([^<]+)<\/span>/i;
+            const conditionRegex = /<span[^>]*data-(?:cy|test-id)="listing-book-condition"[^>]*>([^<]+)<\/span>/i;
 
             let match;
             while ((match = itemRegex.exec(html)) !== null) {
                 const block = match[1] || '';
 
                 const titleMatch = titleRegex.exec(block);
-                const title = titleMatch ? titleMatch[1].trim() : '';
+                const title = titleMatch && titleMatch[1] ? titleMatch[1].trim() : '';
 
                 // Check stopwords
                 if (stopwords.some((sw) => title.toLowerCase().includes(sw.toLowerCase()))) continue;
 
-                const priceMatch = priceRegex.exec(block);
-                const priceGBP = priceMatch ? parseFloat(priceMatch[1].replace(',', '')) : null;
+                const priceMatch = priceMetaRegex.exec(block) || priceTextRegex.exec(block);
+                const priceRaw = priceMatch ? priceMatch[1] || priceMatch[2] : null;
+                const priceGBP = priceRaw ? parseFloat(priceRaw.replace(',', '')) : null;
                 if (priceGBP === null || !Number.isFinite(priceGBP)) continue;
 
                 const linkMatch = linkRegex.exec(block);
                 const link = linkMatch ? `https://www.abebooks.co.uk${linkMatch[1]}` : '';
 
                 const sellerMatch = sellerRegex.exec(block);
-                const seller = sellerMatch ? sellerMatch[1].trim() : '';
+                const seller = sellerMatch && sellerMatch[1] ? sellerMatch[1].trim() : '';
 
                 const conditionMatch = conditionRegex.exec(block);
-                const condition = conditionMatch ? conditionMatch[1].trim() : '';
+                const condition = conditionMatch && conditionMatch[1] ? conditionMatch[1].trim() : '';
 
                 const listingKey = createHash('sha256').update(`${link}|${seller}`).digest('hex').slice(0, 32);
 
@@ -398,7 +401,7 @@ export default defineHook(({ schedule }, { services, database, getSchema, env, l
         const books: Book[] = await booksService.readByQuery({
             fields: ['id', 'url', 'title', 'isbn13', 'ebay_keywords', 'ebay_optional_words', 'ebay_stopwords', 'abebooks_stopwords'],
             limit: -1,
-        });
+        }) as Array<Book>;
 
         logger.info(`[listings-sync] Loaded ${books.length} books`);
 
