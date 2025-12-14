@@ -322,8 +322,8 @@ export default defineHook(({ schedule, init }, { services, database, getSchema, 
 
         // Build search URL
         const keywords = `${book.ebay_keywords || ''} ${(book.ebay_optional_words || []).join(' ')}`.trim();
-        const isbnParam = book.isbn13 ? `&isbn=${encodeURIComponent(book.isbn13)}` : '';
-        const searchUrl = `https://www.abebooks.co.uk/servlet/SearchResults?ds=50&sortby=3&tn=${encodeURIComponent(book.title)}&kn=${encodeURIComponent(keywords)}${isbnParam}`;
+        const titleIsbnParam = book.isbn13 ? `&isbn=${encodeURIComponent(book.isbn13)}` : `&tn=${encodeURIComponent(book.title)}`;
+        const searchUrl = `https://www.abebooks.co.uk/servlet/SearchResults?ds=50&sortby=3&kn=${encodeURIComponent(keywords)}${titleIsbnParam}`;
 
         try {
             const res = await fetch(searchUrl, {

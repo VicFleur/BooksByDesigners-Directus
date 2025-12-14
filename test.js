@@ -24,8 +24,8 @@ async function runAbebooksSearch(book, rates) {
 
     // Build search URL
     const keywords = `${book.ebay_keywords || ''} ${(book.ebay_optional_words || []).join(' ')}`.trim();
-    const isbnParam = book.isbn13 ? `&isbn=${encodeURIComponent(book.isbn13)}` : '';
-    const searchUrl = `https://www.abebooks.co.uk/servlet/SearchResults?ds=50&sortby=3&tn=${encodeURIComponent(book.title)}&kn=${encodeURIComponent(keywords)}${isbnParam}`;
+    const titleIsbnParam = book.isbn13 ? `&isbn=${encodeURIComponent(book.isbn13)}` : `&tn=${encodeURIComponent(book.title)}`;
+    const searchUrl = `https://www.abebooks.co.uk/servlet/SearchResults?ds=50&sortby=3&kn=${encodeURIComponent(keywords)}${titleIsbnParam}`;
 
     try {
         const res = await fetch(searchUrl, {
@@ -129,10 +129,10 @@ async function runAbebooksSearch(book, rates) {
 (async () => {
     const book = {
         id: 1,
-        title: 'ERCO Lichtfabrik',
-        ebay_keywords: 'erco lichtfabrik',
+        title: 'Richard Meier Architect Vol.2',
+        ebay_keywords: 'meier architect',
         abebooks_stopwords: [],
-        isbn13: '9783433021866'
+        isbn13: '9780847813216'
     };
     const rates = {
         EUR: 1.1,
