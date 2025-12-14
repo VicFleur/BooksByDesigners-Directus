@@ -612,18 +612,19 @@ export default defineHook(({ schedule, init }, { services, database, getSchema, 
                     if (typeof raw !== 'string') return null;
 
                     const attempts: string[] = [];
+                    const addVariants = (str: string) => {
+                        attempts.push(str);
+                        attempts.push(str.replace(/([{,]\s*)([A-Za-z0-9_]+)\s*:/g, '$1"$2":'));
+                    };
+
                     const trimmed = raw.trim();
-                    attempts.push(trimmed);
+                    addVariants(trimmed);
 
                     // If wrapped in quotes, unwrap and unescape
                     if (trimmed.startsWith('"') && trimmed.endsWith('"')) {
                         const unwrapped = trimmed.slice(1, -1).replace(/\\"/g, '"');
-                        attempts.push(unwrapped);
+                        addVariants(unwrapped);
                     }
-
-                    // Try to quote bare keys (best-effort)
-                    const maybeFixed = trimmed.replace(/([{,]\s*)([A-Za-z0-9_]+)\s*:/g, '$1"$2":');
-                    attempts.push(maybeFixed);
 
                     for (const candidate of attempts) {
                         try {
