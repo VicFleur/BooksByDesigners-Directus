@@ -33,8 +33,10 @@ async function runAbebooksSearch(book, rates) {
         const priceTextRegex = /<p[^>]*class="[^"]*item-price[^"]*"[^>]*>[^0-9]*([\d.,]+)/i;
         const linkRegex = /<a[^>]*(?:itemprop="url"|data-(?:cy|test-id)="listing-title")[^>]*href="([^"]+)"/i;
         const sellerRegex = /<span[^>]*data-(?:cy|test-id)="listing-seller-name"[^>]*>([^<]+)<\/span>/i;
+        const subConditionRegex = /<span[^>]*(?:class="[^"]*\bopt-subcondition\b[^"]*"|data-(?:cy|test-id)="listing-optional-condition")[^>]*>([^<]+)<\/span>/i;
         const conditionRegex = /<span[^>]*data-(?:cy|test-id)="listing-book-condition"[^>]*>([^<]+)<\/span>/i;
         const imageRegex = /<img[^>]*class="[^"]*\bsrp-item-image\b[^"]*"[^>]*src="([^"]+)"/i;
+        const locationRegex = /from\s+([^<]+?)\s+to/i;
 
         let match;
         while ((match = itemRegex.exec(html)) !== null) {
@@ -57,11 +59,22 @@ async function runAbebooksSearch(book, rates) {
             const sellerMatch = sellerRegex.exec(block);
             const seller = sellerMatch ? sellerMatch[1].trim() : '';
 
-            const conditionMatch = conditionRegex.exec(block);
-            const condition = conditionMatch ? conditionMatch[1].trim() : '';
+            const subConditionMatch = subConditionRegex.exec(block);
+            const rawSubCondition = subConditionMatch ? decode(subConditionMatch[1].trim()) : '';
+            const rawConditionFromSpan = (() => {
+                if (rawSubCondition) return rawSubCondition.replace(/^Condition:\s*/i, '').trim();
+                const conditionMatch = conditionRegex.exec(block);
+                return conditionMatch ? decode(conditionMatch[1].trim()) : '';
+            })();
+            const condition = rawConditionFromSpan.includes('-')
+                ? rawConditionFromSpan.split('-')[0].trim()
+                : rawConditionFromSpan;
 
             const imageMatch = imageRegex.exec(block);
             const imageSrc = imageMatch ? imageMatch[1] : null;
+
+            const locationMatch = locationRegex.exec(block);
+            const location = locationMatch ? locationMatch[1].trim() : null;
 
             const listingKey = createHash('sha256').update(`${link}|${seller}`).digest('hex').slice(0, 32);
 
@@ -73,7 +86,7 @@ async function runAbebooksSearch(book, rates) {
                 title,
                 link,
                 seller,
-                location: null,
+                location,
                 item_currency: 'GBP',
                 item_price: priceGBP,
                 item_price_eur: (priceGBP * rates['EUR']) / rates['GBP'],

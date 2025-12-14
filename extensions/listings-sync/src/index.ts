@@ -305,14 +305,14 @@ export default defineHook(({ schedule }, { services, database, getSchema, env, l
                     Accept: 'text/html',
                 },
             });
-    
+
             if (!res.ok) {
                 logger.warn(`[listings-sync] AbeBooks fetch failed for book ${book.id}: ${res.status}`);
                 return listings;
             }
-    
+
             const html = await res.text();
-    
+
             // Simple regex-based extraction (minimal scraping)
             // AbeBooks wraps each result in an <li class="result-item"> (not a div)
             const itemRegex = /<li[^>]*class="[^"]*\bresult-item\b[^"]*"[^>]*>([\s\S]*?)<\/li>/gi;
@@ -321,38 +321,51 @@ export default defineHook(({ schedule }, { services, database, getSchema, env, l
             const priceTextRegex = /<p[^>]*class="[^"]*item-price[^"]*"[^>]*>[^0-9]*([\d.,]+)/i;
             const linkRegex = /<a[^>]*(?:itemprop="url"|data-(?:cy|test-id)="listing-title")[^>]*href="([^"]+)"/i;
             const sellerRegex = /<span[^>]*data-(?:cy|test-id)="listing-seller-name"[^>]*>([^<]+)<\/span>/i;
+            const subConditionRegex = /<span[^>]*(?:class="[^"]*\bopt-subcondition\b[^"]*"|data-(?:cy|test-id)="listing-optional-condition")[^>]*>([^<]+)<\/span>/i;
             const conditionRegex = /<span[^>]*data-(?:cy|test-id)="listing-book-condition"[^>]*>([^<]+)<\/span>/i;
             const imageRegex = /<img[^>]*class="[^"]*\bsrp-item-image\b[^"]*"[^>]*src="([^"]+)"/i;
-    
+            const locationRegex = /from\s+([^<]+?)\s+to/i;
+
             let match;
             while ((match = itemRegex.exec(html)) !== null) {
                 const block = match[1] || '';
-    
+
                 const titleMatch = titleRegex.exec(block);
                 const title = titleMatch && titleMatch[1] ? decode(titleMatch[1].trim()) : '';
-    
+
                 // Check stopwords
                 if (stopwords.some((sw) => title.toLowerCase().includes(sw.toLowerCase()))) continue;
-    
+
                 const priceMatch = priceMetaRegex.exec(block) || priceTextRegex.exec(block);
                 const priceRaw = priceMatch ? priceMatch[1] || priceMatch[2] : null;
                 const priceGBP = priceRaw ? parseFloat(priceRaw.replace(',', '')) : null;
                 if (priceGBP === null || !Number.isFinite(priceGBP)) continue;
-    
+
                 const linkMatch = linkRegex.exec(block);
                 const link = linkMatch ? `https://www.abebooks.co.uk${linkMatch[1]}` : '';
-    
+
                 const sellerMatch = sellerRegex.exec(block);
                 const seller = sellerMatch && sellerMatch[1] ? sellerMatch[1].trim() : '';
-    
-                const conditionMatch = conditionRegex.exec(block);
-                const condition = conditionMatch && conditionMatch[1] ? conditionMatch[1].trim() : '';
-                
+
+                const subConditionMatch = subConditionRegex.exec(block);
+                const rawSubCondition = subConditionMatch && subConditionMatch[1] ? decode(subConditionMatch[1].trim()) : '';
+                const rawConditionFromSpan = (() => {
+                    if (rawSubCondition) return rawSubCondition.replace(/^Condition:\s*/i, '').trim();
+                    const conditionMatch = conditionRegex.exec(block);
+                    return conditionMatch && conditionMatch[1] ? decode(conditionMatch[1].trim()) : '';
+                })();
+                const condition = rawConditionFromSpan.includes('-')
+                    ? rawConditionFromSpan.split('-')[0].trim()
+                    : rawConditionFromSpan;
+
                 const imageMatch = imageRegex.exec(block);
-                const imageSrc = imageMatch && imageMatch[1] ? imageMatch[1] : null;
-    
+                const imageSrc = imageMatch ? imageMatch[1] : null;
+
+                const locationMatch = locationRegex.exec(block);
+                const location = locationMatch && locationMatch[1] ? locationMatch[1].trim() : null;
+
                 const listingKey = createHash('sha256').update(`${link}|${seller}`).digest('hex').slice(0, 32);
-    
+
                 listings.push({
                     book: book.id,
                     source: 'abebooks',
@@ -361,7 +374,7 @@ export default defineHook(({ schedule }, { services, database, getSchema, env, l
                     title,
                     link,
                     seller,
-                    location: null,
+                    location,
                     item_currency: 'GBP',
                     item_price: priceGBP,
                     item_price_eur: (priceGBP * rates['EUR']) / rates['GBP'],
