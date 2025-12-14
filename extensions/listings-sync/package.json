@@ -23,7 +23,8 @@
         "typescript": "^5.4.2"
     },
     "dependencies": {
-        "bottleneck": "^2.19.5"
+        "bottleneck": "^2.19.5",
+		"he": "^1.2.0"
     }
 }
 

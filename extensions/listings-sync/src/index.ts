@@ -1,6 +1,8 @@
 import { defineHook } from '@directus/extensions-sdk';
 import Bottleneck from 'bottleneck';
 import { createHash } from 'crypto';
+// @ts-ignore
+import { decode } from 'he';
 
 // Types
 interface Book {
@@ -293,7 +295,8 @@ export default defineHook(({ schedule }, { services, database, getSchema, env, l
 
         // Build search URL
         const keywords = `${book.ebay_keywords || ''} ${(book.ebay_optional_words || []).join(' ')}`.trim();
-        const searchUrl = `https://www.abebooks.co.uk/servlet/SearchResults?sortby=3&tn=${encodeURIComponent(book.title)}&kn=${encodeURIComponent(keywords)}`;
+        const isbnParam = book.isbn13 ? `&isbn=${encodeURIComponent(book.isbn13)}` : '';
+        const searchUrl = `https://www.abebooks.co.uk/servlet/SearchResults?ds=50&sortby=3&tn=${encodeURIComponent(book.title)}&kn=${encodeURIComponent(keywords)}${isbnParam}`;
 
         try {
             const res = await fetch(searchUrl, {
@@ -302,14 +305,14 @@ export default defineHook(({ schedule }, { services, database, getSchema, env, l
                     Accept: 'text/html',
                 },
             });
-
+    
             if (!res.ok) {
                 logger.warn(`[listings-sync] AbeBooks fetch failed for book ${book.id}: ${res.status}`);
                 return listings;
             }
-
+    
             const html = await res.text();
-
+    
             // Simple regex-based extraction (minimal scraping)
             // AbeBooks wraps each result in an <li class="result-item"> (not a div)
             const itemRegex = /<li[^>]*class="[^"]*\bresult-item\b[^"]*"[^>]*>([\s\S]*?)<\/li>/gi;
@@ -319,33 +322,37 @@ export default defineHook(({ schedule }, { services, database, getSchema, env, l
             const linkRegex = /<a[^>]*(?:itemprop="url"|data-(?:cy|test-id)="listing-title")[^>]*href="([^"]+)"/i;
             const sellerRegex = /<span[^>]*data-(?:cy|test-id)="listing-seller-name"[^>]*>([^<]+)<\/span>/i;
             const conditionRegex = /<span[^>]*data-(?:cy|test-id)="listing-book-condition"[^>]*>([^<]+)<\/span>/i;
-
+            const imageRegex = /<img[^>]*class="[^"]*\bsrp-item-image\b[^"]*"[^>]*src="([^"]+)"/i;
+    
             let match;
             while ((match = itemRegex.exec(html)) !== null) {
                 const block = match[1] || '';
-
+    
                 const titleMatch = titleRegex.exec(block);
-                const title = titleMatch && titleMatch[1] ? titleMatch[1].trim() : '';
-
+                const title = titleMatch && titleMatch[1] ? decode(titleMatch[1].trim()) : '';
+    
                 // Check stopwords
                 if (stopwords.some((sw) => title.toLowerCase().includes(sw.toLowerCase()))) continue;
-
+    
                 const priceMatch = priceMetaRegex.exec(block) || priceTextRegex.exec(block);
                 const priceRaw = priceMatch ? priceMatch[1] || priceMatch[2] : null;
                 const priceGBP = priceRaw ? parseFloat(priceRaw.replace(',', '')) : null;
                 if (priceGBP === null || !Number.isFinite(priceGBP)) continue;
-
+    
                 const linkMatch = linkRegex.exec(block);
                 const link = linkMatch ? `https://www.abebooks.co.uk${linkMatch[1]}` : '';
-
+    
                 const sellerMatch = sellerRegex.exec(block);
                 const seller = sellerMatch && sellerMatch[1] ? sellerMatch[1].trim() : '';
-
+    
                 const conditionMatch = conditionRegex.exec(block);
                 const condition = conditionMatch && conditionMatch[1] ? conditionMatch[1].trim() : '';
-
+                
+                const imageMatch = imageRegex.exec(block);
+                const imageSrc = imageMatch && imageMatch[1] ? imageMatch[1] : null;
+    
                 const listingKey = createHash('sha256').update(`${link}|${seller}`).digest('hex').slice(0, 32);
-
+    
                 listings.push({
                     book: book.id,
                     source: 'abebooks',
@@ -363,7 +370,7 @@ export default defineHook(({ schedule }, { services, database, getSchema, env, l
                     listing_type: 'FixedPrice',
                     condition,
                     condition_id: null,
-                    image_src: null,
+                    image_src: imageSrc || null,
                     description: null,
                     item_affiliate_web_url: null,
                     item_web_url: link,
@@ -418,10 +425,11 @@ export default defineHook(({ schedule }, { services, database, getSchema, env, l
 
             // Fetch listings from both sources
             const ebayCountries = ['DE', 'AT', 'CH', 'IT', 'FR', 'GB', 'US'];
-            const ebayPromises = ebayCountries.map((cc) => runEbaySearch(book, cc, rates));
+            //const ebayPromises = ebayCountries.map((cc) => runEbaySearch(book, cc, rates));
             const abebooksPromise = runAbebooksSearch(book, rates);
 
-            const results = await Promise.all([...ebayPromises, abebooksPromise]);
+            //const results = await Promise.all([...ebayPromises, abebooksPromise]);
+            const results = await Promise.all([abebooksPromise]);
             const newListings = results.flat();
 
             // Dedupe by listing_key (same source + key)

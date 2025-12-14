@@ -1,4 +1,5 @@
 import { createHash } from 'crypto';
+import { decode } from 'he';
 
 async function runAbebooksSearch(book, rates) {
     const listings = [];
@@ -6,7 +7,8 @@ async function runAbebooksSearch(book, rates) {
 
     // Build search URL
     const keywords = `${book.ebay_keywords || ''} ${(book.ebay_optional_words || []).join(' ')}`.trim();
-    const searchUrl = `https://www.abebooks.co.uk/servlet/SearchResults?sortby=3&tn=${encodeURIComponent(book.title)}&kn=${encodeURIComponent(keywords)}`;
+    const isbnParam = book.isbn13 ? `&isbn=${encodeURIComponent(book.isbn13)}` : '';
+    const searchUrl = `https://www.abebooks.co.uk/servlet/SearchResults?ds=50&sortby=3&tn=${encodeURIComponent(book.title)}&kn=${encodeURIComponent(keywords)}${isbnParam}`;
 
     try {
         const res = await fetch(searchUrl, {
@@ -32,13 +34,14 @@ async function runAbebooksSearch(book, rates) {
         const linkRegex = /<a[^>]*(?:itemprop="url"|data-(?:cy|test-id)="listing-title")[^>]*href="([^"]+)"/i;
         const sellerRegex = /<span[^>]*data-(?:cy|test-id)="listing-seller-name"[^>]*>([^<]+)<\/span>/i;
         const conditionRegex = /<span[^>]*data-(?:cy|test-id)="listing-book-condition"[^>]*>([^<]+)<\/span>/i;
+        const imageRegex = /<img[^>]*class="[^"]*\bsrp-item-image\b[^"]*"[^>]*src="([^"]+)"/i;
 
         let match;
         while ((match = itemRegex.exec(html)) !== null) {
             const block = match[1] || '';
 
             const titleMatch = titleRegex.exec(block);
-            const title = titleMatch ? titleMatch[1].trim() : '';
+            const title = titleMatch ? decode(titleMatch[1].trim()) : '';
 
             // Check stopwords
             if (stopwords.some((sw) => title.toLowerCase().includes(sw.toLowerCase()))) continue;
@@ -56,6 +59,9 @@ async function runAbebooksSearch(book, rates) {
 
             const conditionMatch = conditionRegex.exec(block);
             const condition = conditionMatch ? conditionMatch[1].trim() : '';
+
+            const imageMatch = imageRegex.exec(block);
+            const imageSrc = imageMatch ? imageMatch[1] : null;
 
             const listingKey = createHash('sha256').update(`${link}|${seller}`).digest('hex').slice(0, 32);
 
@@ -76,7 +82,7 @@ async function runAbebooksSearch(book, rates) {
                 listing_type: 'FixedPrice',
                 condition,
                 condition_id: null,
-                image_src: null,
+                image_src: imageSrc,
                 description: null,
                 item_affiliate_web_url: null,
                 item_web_url: link,
@@ -95,7 +101,8 @@ async function runAbebooksSearch(book, rates) {
         id: 1,
         title: 'perennials',
         ebay_keywords: 'taylor guide to perennials',
-        abebooks_stopwords: ['proven', 'for sun', '600', '1989', 'for shade']
+        abebooks_stopwords: ['proven', 'for sun', '600', '1989', 'for shade'],
+        isbn13: '9780395404485'
     };
     const rates = {
         EUR: 1.1,
