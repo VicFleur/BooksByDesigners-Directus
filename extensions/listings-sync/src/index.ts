@@ -76,6 +76,7 @@ export default defineHook(({ schedule, init }, { services, database, getSchema, 
     const ItemsService = services.ItemsService;
 
     const cronExpression = env['LISTINGS_CRON'] || '0 3 * * *';
+    const ratesCronExpression = env['RATES_CRON'] || '0 */6 * * *'; // Every 6 hours by default
     const dryRun = env['LISTINGS_SYNC_DRY_RUN'] === 'true';
 
     // eBay config from env
@@ -424,6 +425,63 @@ export default defineHook(({ schedule, init }, { services, database, getSchema, 
         }
     }
 
+    // Fetch and store exchange rates in the rates singleton
+    async function syncRates(): Promise<FxRates | null> {
+        logger.info('[listings-sync] Fetching exchange rates...');
+        const schema = await getSchema();
+        const ratesService = new ItemsService('rates', { schema, knex: database });
+
+        try {
+            const ratesRes = await fetch(EXCHANGE_RATES_URL);
+            const ratesJson = (await ratesRes.json()) as { rates: FxRates };
+            const apiRates = ratesJson.rates;
+
+            // EUR is the base currency, always 1
+            const rates: FxRates = {
+                EUR: 1,
+                USD: apiRates.USD / apiRates.EUR,
+                GBP: apiRates.GBP / apiRates.EUR,
+            };
+
+            // Update the singleton
+            await ratesService.upsertSingleton({
+                eur: rates.EUR,
+                usd: rates.USD,
+                gbp: rates.GBP,
+            });
+
+            logger.info(`[listings-sync] Rates saved: EUR=${rates.EUR}, USD=${rates.USD.toFixed(4)}, GBP=${rates.GBP.toFixed(4)}`);
+            return rates;
+        } catch (e) {
+            logger.error(`[listings-sync] Failed to fetch/save FX rates: ${e}`);
+            return null;
+        }
+    }
+
+    // Load rates from the singleton
+    async function loadRates(): Promise<FxRates | null> {
+        const schema = await getSchema();
+        const ratesService = new ItemsService('rates', { schema, knex: database });
+
+        try {
+            const saved = await ratesService.readSingleton({ fields: ['eur', 'usd', 'gbp'] }) as { eur: number; usd: number; gbp: number } | null;
+
+            if (!saved || !saved.usd || !saved.gbp) {
+                logger.warn('[listings-sync] No saved rates found, fetching fresh rates...');
+                return await syncRates();
+            }
+
+            return {
+                EUR: saved.eur || 1,
+                USD: saved.usd,
+                GBP: saved.gbp,
+            };
+        } catch (e) {
+            logger.error(`[listings-sync] Failed to load rates: ${e}`);
+            return null;
+        }
+    }
+
     // Main sync logic
     async function syncListings(bookIds?: (number | string)[], sources?: string[]) {
         const startTime = Date.now();
@@ -431,17 +489,13 @@ export default defineHook(({ schedule, init }, { services, database, getSchema, 
 
         const schema = await getSchema();
 
-        // Fetch FX rates
-        let rates: FxRates;
-        try {
-            const ratesRes = await fetch(EXCHANGE_RATES_URL);
-            const ratesJson = (await ratesRes.json()) as { rates: FxRates };
-            rates = ratesJson.rates;
-            logger.info(`[listings-sync] FX rates loaded: EUR=${rates.EUR}, USD=${rates.USD}, GBP=${rates.GBP}`);
-        } catch (e) {
-            logger.error(`[listings-sync] Failed to fetch FX rates: ${e}`);
+        // Load FX rates from singleton
+        const rates = await loadRates();
+        if (!rates) {
+            logger.error('[listings-sync] Cannot proceed without FX rates');
             return;
         }
+        logger.info(`[listings-sync] Using rates: EUR=${rates.EUR}, USD=${rates.USD}, GBP=${rates.GBP}`);
 
         // Fetch all books
         const booksService = new ItemsService('books', { schema, knex: database });
@@ -577,7 +631,18 @@ export default defineHook(({ schedule, init }, { services, database, getSchema, 
         logger.info(`[listings-sync] Sync complete in ${elapsed}s: created=${totalCreated}, updated=${totalUpdated}, retired=${totalRetired}`);
     }
 
-    // Register cron
+    // Register rates cron
+    schedule(ratesCronExpression, async () => {
+        try {
+            await syncRates();
+        } catch (e) {
+            logger.error(`[listings-sync] Rates sync failed: ${e}`);
+        }
+    });
+
+    logger.info(`[listings-sync] Registered rates cron: ${ratesCronExpression}`);
+
+    // Register listings cron
     schedule(cronExpression, async () => {
         try {
             await syncListings();
@@ -586,7 +651,7 @@ export default defineHook(({ schedule, init }, { services, database, getSchema, 
         }
     });
 
-    logger.info(`[listings-sync] Registered cron: ${cronExpression}`);
+    logger.info(`[listings-sync] Registered listings cron: ${cronExpression}`);
 
     // Register custom route for manual trigger via Flow
     init('routes.before', async ({ app }) => {
