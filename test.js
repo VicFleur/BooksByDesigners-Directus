@@ -1,6 +1,23 @@
 import { createHash } from 'crypto';
 import { decode } from 'he';
 
+function getCharset(contentType) {
+    if (!contentType) return 'utf-8';
+    const match = /charset=([^;]+)/i.exec(contentType);
+    return match && match[1] ? match[1].toLowerCase() : 'utf-8';
+}
+
+async function decodeResponseBody(res) {
+    const buffer = await res.arrayBuffer();
+    const charset = getCharset(res.headers.get('content-type'));
+    const normalized = charset === 'iso-8859-1' ? 'latin1' : charset;
+    try {
+        return new TextDecoder(normalized).decode(buffer);
+    } catch {
+        return new TextDecoder('utf-8').decode(buffer);
+    }
+}
+
 async function runAbebooksSearch(book, rates) {
     const listings = [];
     const stopwords = Array.isArray(book.abebooks_stopwords) ? book.abebooks_stopwords : [];
@@ -23,7 +40,7 @@ async function runAbebooksSearch(book, rates) {
             return listings;
         }
 
-        const html = await res.text();
+        const html = await decodeResponseBody(res);
 
         // Simple regex-based extraction (minimal scraping)
         // AbeBooks wraps each result in an <li class="result-item"> (not a div)
@@ -112,10 +129,10 @@ async function runAbebooksSearch(book, rates) {
 (async () => {
     const book = {
         id: 1,
-        title: 'perennials',
-        ebay_keywords: 'taylor guide to perennials',
-        abebooks_stopwords: ['proven', 'for sun', '600', '1989', 'for shade'],
-        isbn13: '9780395404485'
+        title: 'ERCO Lichtfabrik',
+        ebay_keywords: 'erco lichtfabrik',
+        abebooks_stopwords: [],
+        isbn13: '9783433021866'
     };
     const rates = {
         EUR: 1.1,

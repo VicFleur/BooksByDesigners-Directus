@@ -93,6 +93,23 @@ export default defineHook(({ schedule, init }, { services, database, getSchema, 
         minTime: EBAY_MIN_TIME_MS,
     });
 
+    function getCharset(contentType: string | null): string {
+        if (!contentType) return 'utf-8';
+        const match = /charset=([^;]+)/i.exec(contentType);
+        return match && match[1] ? match[1].toLowerCase() : 'utf-8';
+    }
+
+    async function decodeResponseBody(res: Response): Promise<string> {
+        const buffer = await res.arrayBuffer();
+        const charset = getCharset(res.headers.get('content-type'));
+        const normalized = charset === 'iso-8859-1' ? 'latin1' : charset;
+        try {
+            return new TextDecoder(normalized).decode(buffer);
+        } catch {
+            return new TextDecoder('utf-8').decode(buffer);
+        }
+    }
+
     // Helper: get eBay OAuth token
     async function getEbayAccessToken(): Promise<string> {
         const now = Date.now();
@@ -320,7 +337,7 @@ export default defineHook(({ schedule, init }, { services, database, getSchema, 
                 return { listings: [], success: false, source: 'abebooks' };
             }
 
-            const html = await res.text();
+            const html = await decodeResponseBody(res);
 
             // Simple regex-based extraction (minimal scraping)
             // AbeBooks wraps each result in an <li class="result-item"> (not a div)
