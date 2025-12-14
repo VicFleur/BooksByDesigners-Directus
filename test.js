@@ -129,10 +129,10 @@ async function runAbebooksSearch(book, rates) {
 (async () => {
     const book = {
         id: 1,
-        title: 'Richard Meier Architect Vol.2',
-        ebay_keywords: 'meier architect',
+        title: 'Richard Meier Architect Vol.5',
+        ebay_keywords: 'Richard Meier Architect',
         abebooks_stopwords: [],
-        isbn13: '9780847813216'
+        isbn13: '9780847832736'
     };
     const rates = {
         EUR: 1.1,
