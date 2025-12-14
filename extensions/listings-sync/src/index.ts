@@ -603,11 +603,11 @@ export default defineHook(({ schedule, init }, { services, database, getSchema, 
 
                 const { keys, sources } = req.body;
                 
-                if (keys && !Array.isArray(keys)) {
+                if (keys && (!Array.isArray(keys) || keys.length == 0)) {
                     return res.status(400).send('Invalid payload. Expected "keys" array.');
                 }
                 
-                if (sources && !Array.isArray(sources)) {
+                if (sources && (!Array.isArray(sources) || sources.length == 0)) {
                     return res.status(400).send('Invalid payload. Expected "sources" array.');
                 }
 
