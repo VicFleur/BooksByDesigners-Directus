@@ -49,6 +49,12 @@ interface FxRates {
     [key: string]: number;
 }
 
+interface SearchResult {
+    listings: Listing[];
+    success: boolean;
+    source: 'ebay' | 'abebooks';
+}
+
 // Config
 const REQUEST_CHUNK = 50;
 const EBAY_OAUTH_SCOPE = 'https://api.ebay.com/oauth/api_scope';
@@ -66,7 +72,7 @@ const HEAVY_FIELDS_TO_CLEAR = [
     'raw_data',
 ] as const;
 
-export default defineHook(({ schedule }, { services, database, getSchema, env, logger }) => {
+export default defineHook(({ schedule, init }, { services, database, getSchema, env, logger }) => {
     const ItemsService = services.ItemsService;
 
     const cronExpression = env['LISTINGS_CRON'] || '0 3 * * *';
@@ -80,6 +86,7 @@ export default defineHook(({ schedule }, { services, database, getSchema, env, l
     const EBAY_MIN_TIME_MS = parseInt(env['EBAY_MIN_TIME_MS'] || '200', 10);
     const EBAY_TRACKING = env['EBAY_TRACKING'] || '';
     const EXCHANGE_RATES_URL = env['EXCHANGE_RATES_URL'] || 'http://api.exchangeratesapi.io/v1/latest?access_key=53af9fd44c212751829b71979e140b25&format=1&symbols=EUR,USD,GBP';
+    const SYNC_SECRET = env['LISTINGS_SYNC_SECRET'];
 
     const ebayLimiter = new Bottleneck({
         maxConcurrent: EBAY_MAX_CONCURRENT,
@@ -260,10 +267,11 @@ export default defineHook(({ schedule }, { services, database, getSchema, env, l
     }
 
     // Helper: run eBay search for a book/country
-    async function runEbaySearch(book: Book, countryCode: string, rates: FxRates): Promise<Listing[]> {
+    async function runEbaySearch(book: Book, countryCode: string, rates: FxRates): Promise<SearchResult> {
         const allListings: Listing[] = [];
         let ebayPage = 1;
         let makeNewQuery = true;
+        let hadError = false;
 
         while (makeNewQuery && ebayPage <= MAX_EBAY_PAGES) {
             try {
@@ -282,14 +290,15 @@ export default defineHook(({ schedule }, { services, database, getSchema, env, l
             } catch (e) {
                 logger.warn(`[listings-sync] eBay error for book ${book.id} ${countryCode}: ${e}`);
                 makeNewQuery = false;
+                hadError = true;
             }
         }
 
-        return allListings;
+        return { listings: allListings, success: !hadError, source: 'ebay' };
     }
 
     // Helper: fetch and parse AbeBooks listings (simplified scraping via fetch)
-    async function runAbebooksSearch(book: Book, rates: FxRates): Promise<Listing[]> {
+    async function runAbebooksSearch(book: Book, rates: FxRates): Promise<SearchResult> {
         const listings: Listing[] = [];
         const stopwords = Array.isArray(book.abebooks_stopwords) ? book.abebooks_stopwords : [];
 
@@ -308,7 +317,7 @@ export default defineHook(({ schedule }, { services, database, getSchema, env, l
 
             if (!res.ok) {
                 logger.warn(`[listings-sync] AbeBooks fetch failed for book ${book.id}: ${res.status}`);
-                return listings;
+                return { listings: [], success: false, source: 'abebooks' };
             }
 
             const html = await res.text();
@@ -345,7 +354,7 @@ export default defineHook(({ schedule }, { services, database, getSchema, env, l
                 const link = linkMatch ? `https://www.abebooks.co.uk${linkMatch[1]}` : '';
 
                 const sellerMatch = sellerRegex.exec(block);
-                const seller = sellerMatch && sellerMatch[1] ? sellerMatch[1].trim() : '';
+                const seller = sellerMatch && sellerMatch[1] ? decode(sellerMatch[1].trim()) : '';
 
                 const subConditionMatch = subConditionRegex.exec(block);
                 const rawSubCondition = subConditionMatch && subConditionMatch[1] ? decode(subConditionMatch[1].trim()) : '';
@@ -390,17 +399,18 @@ export default defineHook(({ schedule }, { services, database, getSchema, env, l
                     raw_data: null,
                 });
             }
+
+            return { listings, success: true, source: 'abebooks' };
         } catch (e) {
             logger.warn(`[listings-sync] AbeBooks scrape error for book ${book.id}: ${e}`);
+            return { listings: [], success: false, source: 'abebooks' };
         }
-
-        return listings;
     }
 
     // Main sync logic
-    async function syncListings() {
+    async function syncListings(bookIds?: (number | string)[], sources?: string[]) {
         const startTime = Date.now();
-        logger.info(`[listings-sync] Starting sync (dryRun=${dryRun})`);
+        logger.info(`[listings-sync] Starting sync (dryRun=${dryRun}, ids=${bookIds?.join(',') || 'all'}, sources=${sources?.join(',') || 'all'})`);
 
         const schema = await getSchema();
 
@@ -418,10 +428,17 @@ export default defineHook(({ schedule }, { services, database, getSchema, env, l
 
         // Fetch all books
         const booksService = new ItemsService('books', { schema, knex: database });
-        const books: Book[] = await booksService.readByQuery({
+        
+        const query: Record<string, any> = {
             fields: ['id', 'url', 'title', 'isbn13', 'ebay_keywords', 'ebay_optional_words', 'ebay_stopwords', 'abebooks_stopwords'],
             limit: -1,
-        }) as Array<Book>;
+        };
+
+        if (bookIds && bookIds.length > 0) {
+            query['filter'] = { id: { _in: bookIds } };
+        }
+
+        const books: Book[] = await booksService.readByQuery(query) as Array<Book>;
 
         logger.info(`[listings-sync] Loaded ${books.length} books`);
 
@@ -438,11 +455,25 @@ export default defineHook(({ schedule }, { services, database, getSchema, env, l
 
             // Fetch listings from both sources
             const ebayCountries = ['DE', 'AT', 'CH', 'IT', 'FR', 'GB', 'US'];
-            const ebayPromises = ebayCountries.map((cc) => runEbaySearch(book, cc, rates));
-            const abebooksPromise = runAbebooksSearch(book, rates);
+            const searchPromises: Promise<SearchResult>[] = [];
+            const runEbay = !sources || sources.includes('ebay');
+            const runAbebooks = !sources || sources.includes('abebooks');
 
-            const results = await Promise.all([...ebayPromises, abebooksPromise]);
-            const newListings = results.flat();
+            if (runEbay) {
+                searchPromises.push(...ebayCountries.map((cc) => runEbaySearch(book, cc, rates)));
+            }
+            if (runAbebooks) {
+                searchPromises.push(runAbebooksSearch(book, rates));
+            }
+
+            const results = await Promise.all(searchPromises);
+
+            // Track which sources succeeded (all searches for that source must succeed)
+            const ebaySuccess = runEbay && results.filter(r => r.source === 'ebay').every(r => r.success);
+            const abebooksSuccess = runAbebooks && results.filter(r => r.source === 'abebooks').every(r => r.success);
+
+            // Only include listings from successful searches
+            const newListings = results.filter(r => r.success).flatMap(r => r.listings);
 
             // Dedupe by listing_key (same source + key)
             const listingsByKey = new Map<string, Listing>();
@@ -497,6 +528,10 @@ export default defineHook(({ schedule }, { services, database, getSchema, env, l
 
             // Retire listings no longer active
             for (const existing of existingListings) {
+                // If source was not run or failed, skip retirement
+                if (existing.source === 'ebay' && (!runEbay || !ebaySuccess)) continue;
+                if (existing.source === 'abebooks' && (!runAbebooks || !abebooksSuccess)) continue;
+
                 const key = `${existing.source}:${existing.listing_key}`;
                 if (!newKeySet.has(key)) {
                     if (dryRun) {
@@ -535,5 +570,39 @@ export default defineHook(({ schedule }, { services, database, getSchema, env, l
     });
 
     logger.info(`[listings-sync] Registered cron: ${cronExpression}`);
+
+    // Register custom route for manual trigger via Flow
+    init('routes.custom', (meta: any) => {
+        const app = meta.app;
+        app.post('/listings-sync', async (req: any, res: any) => {
+            try {
+                // Ensure request is authenticated
+                let authorized = false;
+                if (req.accountability && req.accountability.user) authorized = true;
+                if (SYNC_SECRET && req.headers['x-sync-secret'] === SYNC_SECRET) authorized = true;
+
+                if (!authorized) {
+                    return res.status(401).send('Unauthorized');
+                }
+
+                const { keys, sources } = req.body;
+                
+                if (keys && !Array.isArray(keys)) {
+                    return res.status(400).send('Invalid payload. Expected "keys" array.');
+                }
+                
+                if (sources && !Array.isArray(sources)) {
+                    return res.status(400).send('Invalid payload. Expected "sources" array.');
+                }
+
+                await syncListings(keys, sources);
+                
+                res.json({ success: true, message: `Synced ${keys ? keys.length : 'all'} books` });
+            } catch (e) {
+                logger.error(e);
+                res.status(500).json({ error: e instanceof Error ? e.message : 'Unknown error' });
+            }
+        });
+    });
 });
 

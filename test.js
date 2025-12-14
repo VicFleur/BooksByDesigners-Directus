@@ -57,7 +57,7 @@ async function runAbebooksSearch(book, rates) {
             const link = linkMatch ? `https://www.abebooks.co.uk${linkMatch[1]}` : '';
 
             const sellerMatch = sellerRegex.exec(block);
-            const seller = sellerMatch ? sellerMatch[1].trim() : '';
+            const seller = sellerMatch ? decode(sellerMatch[1].trim()) : '';
 
             const subConditionMatch = subConditionRegex.exec(block);
             const rawSubCondition = subConditionMatch ? decode(subConditionMatch[1].trim()) : '';
