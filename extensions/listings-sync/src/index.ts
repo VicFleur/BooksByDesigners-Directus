@@ -351,6 +351,7 @@ export default defineHook(({ schedule, init }, { services, database, getSchema, 
             const subConditionRegex = /<span[^>]*(?:class="[^"]*\bopt-subcondition\b[^"]*"|data-(?:cy|test-id)="listing-optional-condition")[^>]*>([^<]+)<\/span>/i;
             const conditionRegex = /<span[^>]*data-(?:cy|test-id)="listing-book-condition"[^>]*>([^<]+)<\/span>/i;
             const imageRegex = /<img[^>]*class="[^"]*\bsrp-item-image\b[^"]*"[^>]*src="([^"]+)"/i;
+            const priceGroupRegex = /<div[^>]*class="[^"]*\bitem-price-group\b[^"]*"[^>]*>([\s\S]*?)<\/div>/gi;
             const locationRegex = /from\s+([^<]+?)\s+to/i;
 
             let match;
@@ -388,8 +389,14 @@ export default defineHook(({ schedule, init }, { services, database, getSchema, 
                 const imageMatch = imageRegex.exec(block);
                 const imageSrc = imageMatch ? imageMatch[1] : null;
 
-                const locationMatch = locationRegex.exec(block);
-                const location = locationMatch && locationMatch[1] ? locationMatch[1].trim() : null;
+                const location = (() => {
+                    let priceGroupMatch;
+                    while ((priceGroupMatch = priceGroupRegex.exec(block)) !== null) {
+                        const locMatch = locationRegex.exec(priceGroupMatch[1] || '');
+                        if (locMatch && locMatch[1]) return locMatch[1]!.trim();
+                    }
+                    return null;
+                })();
 
                 const listingKey = createHash('sha256').update(`${link}|${seller}`).digest('hex').slice(0, 32);
 
@@ -499,7 +506,7 @@ export default defineHook(({ schedule, init }, { services, database, getSchema, 
 
         // Fetch all books
         const booksService = new ItemsService('books', { schema, knex: database });
-        
+
         const query: Record<string, any> = {
             fields: ['id', 'url', 'title', 'isbn13', 'ebay_keywords', 'ebay_optional_words', 'ebay_stopwords', 'abebooks_stopwords'],
             limit: -1,
@@ -671,17 +678,17 @@ export default defineHook(({ schedule, init }, { services, database, getSchema, 
                 if (!keys || !sources) {
                     return res.status(400).send('Invalid payload. Expected "keys" and "sources" arrays.');
                 }
-                
+
                 if (keys && (!Array.isArray(keys) || keys.length == 0)) {
                     return res.status(400).send('Invalid payload. Expected "keys" array.');
                 }
-                
+
                 if (sources && (!Array.isArray(sources) || sources.length == 0)) {
                     return res.status(400).send('Invalid payload. Expected "sources" array.');
                 }
 
                 await syncListings(keys, sources);
-                
+
                 res.json({ success: true, message: `Synced ${keys ? keys.length : 'all'} books` });
             } catch (e) {
                 logger.error(e);

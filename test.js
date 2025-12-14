@@ -27,6 +27,8 @@ async function runAbebooksSearch(book, rates) {
     const titleIsbnParam = book.isbn13 ? `&isbn=${encodeURIComponent(book.isbn13)}` : `&tn=${encodeURIComponent(book.title)}`;
     const searchUrl = `https://www.abebooks.co.uk/servlet/SearchResults?ds=50&sortby=3&kn=${encodeURIComponent(keywords)}${titleIsbnParam}`;
 
+    console.log(searchUrl);
+
     try {
         const res = await fetch(searchUrl, {
             headers: {
@@ -53,6 +55,7 @@ async function runAbebooksSearch(book, rates) {
         const subConditionRegex = /<span[^>]*(?:class="[^"]*\bopt-subcondition\b[^"]*"|data-(?:cy|test-id)="listing-optional-condition")[^>]*>([^<]+)<\/span>/i;
         const conditionRegex = /<span[^>]*data-(?:cy|test-id)="listing-book-condition"[^>]*>([^<]+)<\/span>/i;
         const imageRegex = /<img[^>]*class="[^"]*\bsrp-item-image\b[^"]*"[^>]*src="([^"]+)"/i;
+        const priceGroupRegex = /<div[^>]*class="[^"]*\bitem-price-group\b[^"]*"[^>]*>([\s\S]*?)<\/div>/gi;
         const locationRegex = /from\s+([^<]+?)\s+to/i;
 
         let match;
@@ -90,8 +93,14 @@ async function runAbebooksSearch(book, rates) {
             const imageMatch = imageRegex.exec(block);
             const imageSrc = imageMatch ? imageMatch[1] : null;
 
-            const locationMatch = locationRegex.exec(block);
-            const location = locationMatch ? locationMatch[1].trim() : null;
+            const location = (() => {
+                let priceGroupMatch;
+                while ((priceGroupMatch = priceGroupRegex.exec(block)) !== null) {
+                    const locMatch = locationRegex.exec(priceGroupMatch[1]);
+                    if (locMatch) return locMatch[1].trim();
+                }
+                return null;
+            })();
 
             const listingKey = createHash('sha256').update(`${link}|${seller}`).digest('hex').slice(0, 32);
 
@@ -129,10 +138,11 @@ async function runAbebooksSearch(book, rates) {
 (async () => {
     const book = {
         id: 1,
-        title: 'Richard Meier Architect Vol.5',
-        ebay_keywords: 'Richard Meier Architect',
-        abebooks_stopwords: [],
-        isbn13: '9780847832736'
+        title: 'A History of Visual Communication',
+        ebay_keywords: 'history of visual communication',
+        ebay_optional_words: ["brockmann", "josef", "geschichte"],
+        abebooks_stopwords: ["hearing", "pratt", "innovation", "printing", "twentieth", "century", "chinese", "engraving", "human", "ship", "symbols"],
+        isbn13: ''
     };
     const rates = {
         EUR: 1.1,
