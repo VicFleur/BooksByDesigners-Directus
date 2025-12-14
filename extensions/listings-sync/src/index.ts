@@ -425,11 +425,10 @@ export default defineHook(({ schedule }, { services, database, getSchema, env, l
 
             // Fetch listings from both sources
             const ebayCountries = ['DE', 'AT', 'CH', 'IT', 'FR', 'GB', 'US'];
-            //const ebayPromises = ebayCountries.map((cc) => runEbaySearch(book, cc, rates));
+            const ebayPromises = ebayCountries.map((cc) => runEbaySearch(book, cc, rates));
             const abebooksPromise = runAbebooksSearch(book, rates);
 
-            //const results = await Promise.all([...ebayPromises, abebooksPromise]);
-            const results = await Promise.all([abebooksPromise]);
+            const results = await Promise.all([...ebayPromises, abebooksPromise]);
             const newListings = results.flat();
 
             // Dedupe by listing_key (same source + key)
