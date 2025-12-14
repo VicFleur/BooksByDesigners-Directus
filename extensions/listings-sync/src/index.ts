@@ -591,92 +591,26 @@ export default defineHook(({ schedule, init }, { services, database, getSchema, 
 
     // Register custom route for manual trigger via Flow
     init('routes.before', async ({ app }) => {
-        // Ensure bodies are parsed even if Flow omits Content-Type
-        app.use('/listings-sync', express.json({ limit: '1mb', strict: false }));
-        app.use('/listings-sync', express.text({ type: '*/*', limit: '1mb' }));
+        app.use('/listings-sync', express.json({ limit: '1mb' }));
 
         app.post('/listings-sync', async (req: any, res: any) => {
             try {
-                // Ensure request is authenticated
-                let authorized = false;
-                if (req.accountability && req.accountability.user) authorized = true;
-                if (SYNC_SECRET && req.headers['x-sync-secret'] === SYNC_SECRET) authorized = true;
+                const authorized = req.accountability?.user || (SYNC_SECRET && req.headers['x-sync-secret'] === SYNC_SECRET);
+                if (!authorized) return res.status(401).json({ error: 'Unauthorized' });
 
-                if (!authorized) {
-                    return res.status(401).send('Unauthorized');
+                // Unwrap double-encoded JSON (Directus Flow quirk)
+                let body = req.body;
+                while (typeof body === 'string') body = JSON.parse(body);
+
+                const keys = Array.isArray(body?.keys) ? body.keys : undefined;
+                const sources = Array.isArray(body?.sources) ? body.sources.map(String) : undefined;
+
+                if (!keys?.length || !sources?.length) {
+                    return res.status(400).json({ error: 'Required: keys[] and sources[]' });
                 }
 
-                // Parse body safely (Flow may send it as a double-encoded string)
-                const coerceBody = (raw: unknown): Record<string, unknown> | null => {
-                    if (raw && typeof raw === 'object') return raw as Record<string, unknown>;
-                    if (typeof raw !== 'string') return null;
-
-                    const attempts: string[] = [];
-                    const addVariants = (str: string) => {
-                        attempts.push(str);
-                        attempts.push(str.replace(/([{,]\s*)([A-Za-z0-9_]+)\s*:/g, '$1"$2":'));
-                    };
-
-                    const trimmed = raw.trim();
-                    addVariants(trimmed);
-
-                    // If wrapped in quotes, unwrap and unescape
-                    if (trimmed.startsWith('"') && trimmed.endsWith('"')) {
-                        const unwrapped = trimmed.slice(1, -1).replace(/\\"/g, '"');
-                        addVariants(unwrapped);
-                    }
-
-                    for (const candidate of attempts) {
-                        try {
-                            const parsed = JSON.parse(candidate);
-                            if (parsed && typeof parsed === 'object') return parsed as Record<string, unknown>;
-                        } catch {
-                            // continue
-                        }
-                    }
-
-                    return null;
-                };
-
-                const parsedBody = coerceBody(req.body);
-                if (!parsedBody) {
-                    return res.status(400).send('Invalid JSON payload.');
-                }
-
-                let { keys, sources } = parsedBody as { keys?: unknown; sources?: unknown };
-
-                if (typeof keys === 'string') {
-                    try {
-                        const parsedKeys = JSON.parse(keys);
-                        if (Array.isArray(parsedKeys)) keys = parsedKeys;
-                    } catch {
-                        // fall through and let validation handle
-                    }
-                }
-                
-                const keyList: Array<number | string> | undefined = Array.isArray(keys) ? keys : undefined;
-                const sourceList: string[] | undefined = Array.isArray(sources) ? sources.map((s) => String(s)) : undefined;
-
-                // Require both keys and sources to be provided
-                if (keyList === undefined || sourceList === undefined) {
-                    return res.status(400).send('Invalid payload. "keys" and "sources" are required.');
-                }
-
-                if (keys !== undefined) {
-                    if (!Array.isArray(keyList) || keyList.length === 0) {
-                        return res.status(400).send('Invalid payload. Expected "keys" array.');
-                    }
-                }
-                
-                if (sources !== undefined) {
-                    if (!Array.isArray(sourceList) || sourceList.length === 0) {
-                        return res.status(400).send('Invalid payload. Expected "sources" array.');
-                    }
-                }
-
-                await syncListings(keyList, sourceList);
-                
-                res.json({ success: true, message: `Synced ${keyList ? keyList.length : 'all'} books` });
+                await syncListings(keys, sources);
+                res.json({ success: true, message: `Synced ${keys.length} books` });
             } catch (e) {
                 logger.error(e);
                 res.status(500).json({ error: e instanceof Error ? e.message : 'Unknown error' });
