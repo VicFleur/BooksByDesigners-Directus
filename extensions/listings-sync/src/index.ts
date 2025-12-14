@@ -606,14 +606,40 @@ export default defineHook(({ schedule, init }, { services, database, getSchema, 
                     return res.status(401).send('Unauthorized');
                 }
 
-                // Parse body safely (Flow may send it as a raw string)
-                let parsedBody = req.body ?? {};
-                if (typeof parsedBody === 'string') {
-                    try {
-                        parsedBody = JSON.parse(parsedBody);
-                    } catch {
-                        return res.status(400).send('Invalid JSON payload.');
+                // Parse body safely (Flow may send it as a double-encoded string)
+                const coerceBody = (raw: unknown): Record<string, unknown> | null => {
+                    if (raw && typeof raw === 'object') return raw as Record<string, unknown>;
+                    if (typeof raw !== 'string') return null;
+
+                    const attempts: string[] = [];
+                    const trimmed = raw.trim();
+                    attempts.push(trimmed);
+
+                    // If wrapped in quotes, unwrap and unescape
+                    if (trimmed.startsWith('"') && trimmed.endsWith('"')) {
+                        const unwrapped = trimmed.slice(1, -1).replace(/\\"/g, '"');
+                        attempts.push(unwrapped);
                     }
+
+                    // Try to quote bare keys (best-effort)
+                    const maybeFixed = trimmed.replace(/([{,]\s*)([A-Za-z0-9_]+)\s*:/g, '$1"$2":');
+                    attempts.push(maybeFixed);
+
+                    for (const candidate of attempts) {
+                        try {
+                            const parsed = JSON.parse(candidate);
+                            if (parsed && typeof parsed === 'object') return parsed as Record<string, unknown>;
+                        } catch {
+                            // continue
+                        }
+                    }
+
+                    return null;
+                };
+
+                const parsedBody = coerceBody(req.body);
+                if (!parsedBody) {
+                    return res.status(400).send('Invalid JSON payload.');
                 }
 
                 let { keys, sources } = parsedBody as { keys?: unknown; sources?: unknown };
